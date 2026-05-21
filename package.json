@@ -1,6 +1,6 @@
 {
-  "name": "wabaflow-inbox-mvp-v4",
-  "version": "4.0.0",
+  "name": "wabaflow-inbox-v5",
+  "version": "5.0.0",
   "private": true,
   "type": "module",
   "scripts": {

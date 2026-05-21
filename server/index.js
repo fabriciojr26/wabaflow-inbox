@@ -11,6 +11,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 8787;
+const APP_VERSION = '5.0.0';
 const DB_PATH = path.join(__dirname, 'data', 'db.json');
 
 app.use(cors());
@@ -61,6 +62,8 @@ function calculateMetrics(db) {
     (sum, conv) => sum + (conv.messages || []).filter((msg) => msg.direction === 'outbound').length,
     0
   );
+  const buyerCount = byStatus.comprador || 0;
+  const proposalCount = byStatus.proposta || 0;
   return {
     totalConversations: total,
     unreadCount,
@@ -71,10 +74,13 @@ function calculateMetrics(db) {
     outboundMessages,
     replyRate: inboundMessages ? Math.round((outboundMessages / inboundMessages) * 100) : 0,
     qualifiedCount: byStatus.qualificado || 0,
-    proposalCount: byStatus.proposta || 0,
-    buyerCount: byStatus.comprador || 0,
+    proposalCount,
+    buyerCount,
     lostCount: byStatus.perdido || 0,
     eventCount: events.length,
+    funnelConversionRate: total ? Math.round((buyerCount/total)*100) : 0,
+    proposalToBuyerRate: proposalCount ? Math.round((buyerCount/proposalCount)*100) : 0,
+    avgMessagesPerConversation: total ? Number(((inboundMessages+outboundMessages)/total).toFixed(1)) : 0,
     byStatus
   };
 }
@@ -165,7 +171,7 @@ function getConversation(db, id) {
 }
 
 app.get('/api/health', (_req, res) => {
-  res.json({ ok: true, app: 'WabaFlow Inbox MVP v4', port: PORT, time: nowIso() });
+  res.json({ ok: true, app: 'WabaFlow Inbox v5', version: APP_VERSION, port: PORT, time: nowIso() });
 });
 
 app.get('/api/state', (_req, res) => {
@@ -318,6 +324,40 @@ app.patch('/api/settings', (req, res) => {
   res.json({ ok: true, settings: db.settings, metrics: calculateMetrics(db) });
 });
 
+
+app.get('/api/mode', (_req, res) => {
+  const db = readDb();
+  const mode = db.settings?.mode || 'simulated';
+  const cloudReady = mode === 'cloud-ready';
+  res.json({
+    ok: true,
+    mode,
+    simulated: mode === 'simulated',
+    cloudReady,
+    guardrails: {
+      realApiEnabled: false,
+      tokensConfigured: false,
+      message: 'Modo cloud-ready apenas prepara estrutura. Nenhum token real é usado.'
+    }
+  });
+});
+
+app.post('/api/cloud/send-template', (req, res) => {
+  const db = readDb();
+  if ((db.settings?.mode || 'simulated') !== 'cloud-ready') {
+    return res.status(400).json({ ok: false, error: 'Ative o modo cloud-ready para testar esta rota simulada.' });
+  }
+  const payload = {
+    id: uid('cloud_req'),
+    to: req.body?.to || null,
+    templateName: req.body?.templateName || 'template_demo',
+    createdAt: nowIso(),
+    status: 'queued_simulated'
+  };
+  addEvent(db, 'CloudApiTemplateQueued', 'Template preparado para futura Cloud API (simulado)', null, payload);
+  writeDb(db);
+  res.json({ ok: true, simulated: true, payload });
+});
 app.post('/api/reset', (_req, res) => {
   const seed = JSON.parse(fs.readFileSync(DB_PATH, 'utf-8'));
   seed.conversations = [];
@@ -385,6 +425,6 @@ app.post('/webhook/whatsapp', (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`WabaFlow Inbox MVP v4 rodando em http://localhost:${PORT}`);
+  console.log(`WabaFlow Inbox v5 rodando em http://localhost:${PORT}`);
   console.log(`Webhook local: http://localhost:${PORT}/webhook/whatsapp`);
 });
