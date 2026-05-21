@@ -1,0 +1,119 @@
+{
+  "version": "4.0.0",
+  "settings": {
+    "projectName": "WabaFlow Inbox",
+    "mode": "simulated",
+    "verifyToken": "meu_token_de_verificacao_webhook",
+    "autoReplyEnabled": true,
+    "businessName": "Minha empresa",
+    "phoneNumberId": "",
+    "notes": "MVP local. Integração real da API fica para a próxima fase."
+  },
+  "flows": [
+    {
+      "id": "flow_preco",
+      "name": "Qualificação por preço",
+      "keywords": [
+        "preço",
+        "preco",
+        "valor",
+        "plano",
+        "quanto",
+        "custa"
+      ],
+      "response": "Claro. Para eu te orientar melhor, você procura uma opção para uso pessoal, revenda ou atendimento comercial?",
+      "active": true,
+      "createdAt": "2026-05-21T00:00:00.000Z",
+      "updatedAt": "2026-05-21T00:00:00.000Z"
+    },
+    {
+      "id": "flow_catalogo",
+      "name": "Pedido de catálogo",
+      "keywords": [
+        "catálogo",
+        "catalogo",
+        "produtos",
+        "opções",
+        "opcoes"
+      ],
+      "response": "Perfeito. Posso te mostrar as principais opções e entender primeiro qual linha ou necessidade você está buscando.",
+      "active": true,
+      "createdAt": "2026-05-21T00:00:00.000Z",
+      "updatedAt": "2026-05-21T00:00:00.000Z"
+    },
+    {
+      "id": "flow_revenda",
+      "name": "Interesse em revenda",
+      "keywords": [
+        "revenda",
+        "revender",
+        "atacado",
+        "distribuidor",
+        "salão",
+        "salao"
+      ],
+      "response": "Excelente. Para revenda ou atendimento profissional, preciso confirmar sua cidade, volume aproximado e tipo de operação: salão, loja ou representante.",
+      "active": true,
+      "createdAt": "2026-05-21T00:00:00.000Z",
+      "updatedAt": "2026-05-21T00:00:00.000Z"
+    }
+  ],
+  "conversations": [
+    {
+      "id": "conv_demo_1",
+      "name": "Lead Demonstração",
+      "phone": "5591999990001",
+      "source": "Simulador local",
+      "status": "novo",
+      "tags": [
+        "frio",
+        "anúncio"
+      ],
+      "notes": "Lead inicial para validar inbox, funil, tags, notas e automação.",
+      "humanMode": false,
+      "unread": 1,
+      "createdAt": "2026-05-21T00:00:00.000Z",
+      "updatedAt": "2026-05-21T00:00:00.000Z",
+      "messages": [
+        {
+          "id": "msg_demo_1",
+          "direction": "inbound",
+          "text": "Olá, quero saber o preço",
+          "createdAt": "2026-05-21T00:00:00.000Z"
+        },
+        {
+          "id": "msg_demo_2",
+          "direction": "outbound",
+          "text": "Claro. Para eu te orientar melhor, você procura uma opção para uso pessoal, revenda ou atendimento comercial?",
+          "createdAt": "2026-05-21T00:00:10.000Z",
+          "meta": {
+            "flowId": "flow_preco"
+          }
+        }
+      ]
+    }
+  ],
+  "events": [
+    {
+      "id": "evt_demo_1",
+      "type": "Lead",
+      "label": "Lead de demonstração criado",
+      "conversationId": "conv_demo_1",
+      "createdAt": "2026-05-21T00:00:00.000Z",
+      "payload": {
+        "source": "seed"
+      }
+    },
+    {
+      "id": "evt_demo_2",
+      "type": "AutoReply",
+      "label": "Fluxo automático disparado",
+      "conversationId": "conv_demo_1",
+      "createdAt": "2026-05-21T00:00:10.000Z",
+      "payload": {
+        "flowId": "flow_preco"
+      }
+    }
+  ],
+  "templates": []
+}
