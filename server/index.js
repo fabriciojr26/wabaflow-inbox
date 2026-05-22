@@ -11,10 +11,38 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 8787;
+const APP_VERSION = '6.0.0';
 const DB_PATH = path.join(__dirname, 'data', 'db.json');
 
 app.use(cors());
 app.use(express.json({ limit: '2mb' }));
+
+const ALLOWED_MODES = ['simulated', 'cloud_ready', 'production_locked'];
+
+function buildConfig(db) {
+  const envMode = String(process.env.WABAFLOW_MODE || '').trim();
+  const dbMode = String(db?.settings?.mode || '').trim();
+  const rawMode = (envMode || dbMode || 'simulated').replace('cloud-ready', 'cloud_ready');
+  const mode = ALLOWED_MODES.includes(rawMode) ? rawMode : 'simulated';
+  const webhookVerifyToken = process.env.WHATSAPP_VERIFY_TOKEN || db?.settings?.verifyToken || 'meu_token_de_verificacao_webhook';
+  const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID || db?.settings?.phoneNumberId || '';
+  const accessToken = process.env.WHATSAPP_ACCESS_TOKEN || '';
+  return {
+    appVersion: APP_VERSION,
+    mode,
+    modeSource: envMode ? 'env' : dbMode ? 'db' : 'default',
+    webhookVerifyToken,
+    phoneNumberId,
+    hasAccessToken: Boolean(accessToken),
+    cloudApiBaseUrl: 'https://graph.facebook.com/v20.0',
+    guardrails: {
+      outboundRealSendEnabled: false,
+      webhookRealEnabled: mode === 'production_locked',
+      tokensExposed: false
+    }
+  };
+}
+
 
 function nowIso() {
   return new Date().toISOString();
@@ -61,6 +89,8 @@ function calculateMetrics(db) {
     (sum, conv) => sum + (conv.messages || []).filter((msg) => msg.direction === 'outbound').length,
     0
   );
+  const buyerCount = byStatus.comprador || 0;
+  const proposalCount = byStatus.proposta || 0;
   return {
     totalConversations: total,
     unreadCount,
@@ -71,10 +101,13 @@ function calculateMetrics(db) {
     outboundMessages,
     replyRate: inboundMessages ? Math.round((outboundMessages / inboundMessages) * 100) : 0,
     qualifiedCount: byStatus.qualificado || 0,
-    proposalCount: byStatus.proposta || 0,
-    buyerCount: byStatus.comprador || 0,
+    proposalCount,
+    buyerCount,
     lostCount: byStatus.perdido || 0,
     eventCount: events.length,
+    funnelConversionRate: total ? Math.round((buyerCount/total)*100) : 0,
+    proposalToBuyerRate: proposalCount ? Math.round((buyerCount/proposalCount)*100) : 0,
+    avgMessagesPerConversation: total ? Number(((inboundMessages+outboundMessages)/total).toFixed(1)) : 0,
     byStatus
   };
 }
@@ -165,7 +198,26 @@ function getConversation(db, id) {
 }
 
 app.get('/api/health', (_req, res) => {
-  res.json({ ok: true, app: 'WabaFlow Inbox MVP v4', port: PORT, time: nowIso() });
+  const startedAt = process.uptime();
+  const db = readDb();
+  const config = buildConfig(db);
+  let dbWritable = true;
+  try { fs.accessSync(DB_PATH, fs.constants.W_OK); } catch { dbWritable = false; }
+  res.json({
+    ok: true,
+    app: 'WabaFlow Inbox v6',
+    version: APP_VERSION,
+    mode: config.mode,
+    uptimeSec: Number(startedAt.toFixed(1)),
+    time: nowIso(),
+    checks: {
+      dbFileExists: fs.existsSync(DB_PATH),
+      dbLoaded: Boolean(db?.version),
+      webhookRouteReady: true,
+      cloudApiStubReady: true,
+      dbWritable
+    }
+  });
 });
 
 app.get('/api/state', (_req, res) => {
@@ -318,6 +370,52 @@ app.patch('/api/settings', (req, res) => {
   res.json({ ok: true, settings: db.settings, metrics: calculateMetrics(db) });
 });
 
+
+app.get('/api/mode', (_req, res) => {
+  const db = readDb();
+  const config = buildConfig(db);
+  res.json({
+    ok: true,
+    mode: config.mode,
+    modeSource: config.modeSource,
+    allowedModes: ALLOWED_MODES,
+    cloudReady: config.mode === 'cloud_ready',
+    simulated: config.mode === 'simulated',
+    productionLocked: config.mode === 'production_locked',
+    guardrails: {
+      realApiEnabled: false,
+      hasAccessToken: config.hasAccessToken,
+      hasPhoneNumberId: Boolean(config.phoneNumberId),
+      message: 'Sem envio real nesta fase. Apenas stub seguro habilitado.'
+    }
+  });
+});
+
+app.post('/api/cloud/send-template', (req, res) => {
+  const db = readDb();
+  const config = buildConfig(db);
+  if (config.mode === 'production_locked') {
+    return res.status(423).json({ ok: false, error: 'Modo production_locked bloqueia qualquer tentativa de envio.' });
+  }
+  if (config.mode === 'simulated') {
+    return res.status(400).json({ ok: false, error: 'Ative cloud_ready para testar o stub de envio futuro.' });
+  }
+
+  const payload = {
+    id: uid('cloud_req'),
+    to: req.body?.to || null,
+    type: 'template',
+    templateName: req.body?.templateName || 'template_demo',
+    language: req.body?.language || 'pt_BR',
+    createdAt: nowIso(),
+    status: 'queued_stub_only',
+    cloudApiEndpointPreview: `${config.cloudApiBaseUrl}/${config.phoneNumberId || 'PHONE_NUMBER_ID'}/messages`
+  };
+
+  addEvent(db, 'CloudApiTemplateQueued', 'Stub seguro de envio Cloud API enfileirado (sem chamada real)', null, payload);
+  writeDb(db);
+  return res.json({ ok: true, simulated: true, mode: config.mode, payload });
+});
 app.post('/api/reset', (_req, res) => {
   const seed = JSON.parse(fs.readFileSync(DB_PATH, 'utf-8'));
   seed.conversations = [];
@@ -385,6 +483,6 @@ app.post('/webhook/whatsapp', (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`WabaFlow Inbox MVP v4 rodando em http://localhost:${PORT}`);
+  console.log(`WabaFlow Inbox v6 rodando em http://localhost:${PORT}`);
   console.log(`Webhook local: http://localhost:${PORT}/webhook/whatsapp`);
 });
